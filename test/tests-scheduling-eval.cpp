@@ -1,3 +1,5 @@
+#include <time.h>
+#include <sys/time.h>
 #include <taco/index_notation/transformations.h>
 #include <codegen/codegen_c.h>
 #include <codegen/codegen_cuda.h>
@@ -865,13 +867,285 @@ TEST(scheduling_eval, spmmGPU) {
   ASSERT_TENSOR_EQ(expected, C);
 }
 
-TEST(scheduling_eval, spmmDCSRGPU) {
+double get_wall_time(){
+    struct timeval time;
+    if (gettimeofday(&time,NULL)){
+        //  Handle error
+        return 0;
+    }
+    return (double)time.tv_sec + (double)time.tv_usec * .000001;
+}
+
+void write_to_file(float ratio, double time) {
+    FILE *fptr;
+    fptr = fopen("taco_latency.txt", "a");
+    fprintf(fptr, "%f %lf\n", ratio, time);
+    fclose(fptr);
+}
+
+TEST(scheduling_eval, spmmDCSRGPU99) {
   if (!should_use_CUDA_codegen()) {
     return;
   }
-  int NUM_I = 1021/10;
+  /*int NUM_I = 1021/10;
   int NUM_J = 1039/10;
   int NUM_K = 128;
+  float SPARSITY = .3;*/
+  int NUM_I = 1024;
+  int NUM_J = 1024;
+  int NUM_K = 1024;
+  float SPARSITY = .01;
+  Tensor<double> A("A", {NUM_I, NUM_J}, {Sparse, Sparse});
+  Tensor<double> B("B", {NUM_J, NUM_K}, {Dense, Dense});
+  Tensor<double> C("C", {NUM_I, NUM_K}, {Dense, Dense});
+
+  srand(25643);
+  for (int i = 0; i < NUM_I; i++) {
+    for (int j = 0; j < NUM_J; j++) {
+      float rand_float = (float)rand()/(float)(RAND_MAX);
+      if (rand_float < SPARSITY) {
+        A.insert({i, j}, (double) ((int) (rand_float*3/SPARSITY)));
+      }
+    }
+  }
+
+  for (int j = 0; j < NUM_J; j++) {
+    for (int k = 0; k < NUM_K; k++) {
+      float rand_float = (float)rand()/(float)(RAND_MAX);
+      B.insert({j, k}, (double) ((int) (rand_float*3/SPARSITY)));
+    }
+  }
+
+  A.pack();
+  B.pack();
+
+  C(i, k) = A(i, j) * B(j, k);
+
+  IndexStmt stmt = C.getAssignment().concretize();
+  stmt = scheduleSpMMNZRowsGPU(stmt, A);
+
+  //printToFile("spmm_dcsr_gpu", stmt);
+
+  C.compile(stmt);
+  C.assemble();
+  C.compute();
+  int ii;
+  double wall0 = get_wall_time();
+  for(ii = 0; ii < 20; ii++) {
+    C.compute();
+  }
+  double wall1 = get_wall_time();
+  printf("kernel time: %lf s\n", (wall1 - wall0)/20);
+  write_to_file(0.99, (wall1 - wall0)/20*1000000); // us
+
+  Tensor<double> expected("expected", {NUM_I, NUM_K}, {Dense, Dense});
+  expected(i, k) = A(i, j) * B(j, k);
+  expected.compile();
+  expected.assemble();
+  expected.compute();
+  ASSERT_TENSOR_EQ(expected, C);
+}
+
+TEST(scheduling_eval, spmmDCSRGPU95) {
+  if (!should_use_CUDA_codegen()) {
+    return;
+  }
+  /*int NUM_I = 1021/10;
+  int NUM_J = 1039/10;
+  int NUM_K = 128;
+  float SPARSITY = .3;*/
+  int NUM_I = 1024;
+  int NUM_J = 1024;
+  int NUM_K = 1024;
+  float SPARSITY = .05;
+  Tensor<double> A("A", {NUM_I, NUM_J}, {Sparse, Sparse});
+  Tensor<double> B("B", {NUM_J, NUM_K}, {Dense, Dense});
+  Tensor<double> C("C", {NUM_I, NUM_K}, {Dense, Dense});
+
+  srand(25643);
+  for (int i = 0; i < NUM_I; i++) {
+    for (int j = 0; j < NUM_J; j++) {
+      float rand_float = (float)rand()/(float)(RAND_MAX);
+      if (rand_float < SPARSITY) {
+        A.insert({i, j}, (double) ((int) (rand_float*3/SPARSITY)));
+      }
+    }
+  }
+
+  for (int j = 0; j < NUM_J; j++) {
+    for (int k = 0; k < NUM_K; k++) {
+      float rand_float = (float)rand()/(float)(RAND_MAX);
+      B.insert({j, k}, (double) ((int) (rand_float*3/SPARSITY)));
+    }
+  }
+
+  A.pack();
+  B.pack();
+
+  C(i, k) = A(i, j) * B(j, k);
+
+  IndexStmt stmt = C.getAssignment().concretize();
+  stmt = scheduleSpMMNZRowsGPU(stmt, A);
+
+  //printToFile("spmm_dcsr_gpu", stmt);
+
+  C.compile(stmt);
+  C.assemble();
+  C.compute();
+  int ii;
+  double wall0 = get_wall_time();
+  for(ii = 0; ii < 20; ii++) {
+    C.compute();
+  }
+  double wall1 = get_wall_time();
+  printf("kernel time: %lf s\n", (wall1 - wall0)/20);
+  write_to_file(0.95, (wall1 - wall0)/20*1000000); // us
+
+  Tensor<double> expected("expected", {NUM_I, NUM_K}, {Dense, Dense});
+  expected(i, k) = A(i, j) * B(j, k);
+  expected.compile();
+  expected.assemble();
+  expected.compute();
+  ASSERT_TENSOR_EQ(expected, C);
+}
+
+TEST(scheduling_eval, spmmDCSRGPU90) {
+  if (!should_use_CUDA_codegen()) {
+    return;
+  }
+  /*int NUM_I = 1021/10;
+  int NUM_J = 1039/10;
+  int NUM_K = 128;
+  float SPARSITY = .3;*/
+  int NUM_I = 1024;
+  int NUM_J = 1024;
+  int NUM_K = 1024;
+  float SPARSITY = .1;
+  Tensor<double> A("A", {NUM_I, NUM_J}, {Sparse, Sparse});
+  Tensor<double> B("B", {NUM_J, NUM_K}, {Dense, Dense});
+  Tensor<double> C("C", {NUM_I, NUM_K}, {Dense, Dense});
+
+  srand(25643);
+  for (int i = 0; i < NUM_I; i++) {
+    for (int j = 0; j < NUM_J; j++) {
+      float rand_float = (float)rand()/(float)(RAND_MAX);
+      if (rand_float < SPARSITY) {
+        A.insert({i, j}, (double) ((int) (rand_float*3/SPARSITY)));
+      }
+    }
+  }
+
+  for (int j = 0; j < NUM_J; j++) {
+    for (int k = 0; k < NUM_K; k++) {
+      float rand_float = (float)rand()/(float)(RAND_MAX);
+      B.insert({j, k}, (double) ((int) (rand_float*3/SPARSITY)));
+    }
+  }
+
+  A.pack();
+  B.pack();
+
+  C(i, k) = A(i, j) * B(j, k);
+
+  IndexStmt stmt = C.getAssignment().concretize();
+  stmt = scheduleSpMMNZRowsGPU(stmt, A);
+
+  //printToFile("spmm_dcsr_gpu", stmt);
+
+  C.compile(stmt);
+  C.assemble();
+  C.compute();
+  int ii;
+  double wall0 = get_wall_time();
+  for(ii = 0; ii < 20; ii++) {
+    C.compute();
+  }
+  double wall1 = get_wall_time();
+  printf("kernel time: %lf s\n", (wall1 - wall0)/20);
+  write_to_file(0.9, (wall1 - wall0)/20*1000000); // us
+
+  Tensor<double> expected("expected", {NUM_I, NUM_K}, {Dense, Dense});
+  expected(i, k) = A(i, j) * B(j, k);
+  expected.compile();
+  expected.assemble();
+  expected.compute();
+  ASSERT_TENSOR_EQ(expected, C);
+}
+
+TEST(scheduling_eval, spmmDCSRGPU80) {
+  if (!should_use_CUDA_codegen()) {
+    return;
+  }
+  /*int NUM_I = 1021/10;
+  int NUM_J = 1039/10;
+  int NUM_K = 128;
+  float SPARSITY = .3;*/
+  int NUM_I = 1024;
+  int NUM_J = 1024;
+  int NUM_K = 1024;
+  float SPARSITY = .2;
+  Tensor<double> A("A", {NUM_I, NUM_J}, {Sparse, Sparse});
+  Tensor<double> B("B", {NUM_J, NUM_K}, {Dense, Dense});
+  Tensor<double> C("C", {NUM_I, NUM_K}, {Dense, Dense});
+
+  srand(25643);
+  for (int i = 0; i < NUM_I; i++) {
+    for (int j = 0; j < NUM_J; j++) {
+      float rand_float = (float)rand()/(float)(RAND_MAX);
+      if (rand_float < SPARSITY) {
+        A.insert({i, j}, (double) ((int) (rand_float*3/SPARSITY)));
+      }
+    }
+  }
+
+  for (int j = 0; j < NUM_J; j++) {
+    for (int k = 0; k < NUM_K; k++) {
+      float rand_float = (float)rand()/(float)(RAND_MAX);
+      B.insert({j, k}, (double) ((int) (rand_float*3/SPARSITY)));
+    }
+  }
+
+  A.pack();
+  B.pack();
+
+  C(i, k) = A(i, j) * B(j, k);
+
+  IndexStmt stmt = C.getAssignment().concretize();
+  stmt = scheduleSpMMNZRowsGPU(stmt, A);
+
+  //printToFile("spmm_dcsr_gpu", stmt);
+
+  C.compile(stmt);
+  C.assemble();
+  C.compute();
+  int ii;
+  double wall0 = get_wall_time();
+  for(ii = 0; ii < 20; ii++) {
+    C.compute();
+  }
+  double wall1 = get_wall_time();
+  printf("kernel time: %lf s\n", (wall1 - wall0)/20);
+  write_to_file(0.8, (wall1 - wall0)/20*1000000); // us
+
+  Tensor<double> expected("expected", {NUM_I, NUM_K}, {Dense, Dense});
+  expected(i, k) = A(i, j) * B(j, k);
+  expected.compile();
+  expected.assemble();
+  expected.compute();
+  ASSERT_TENSOR_EQ(expected, C);
+}
+
+TEST(scheduling_eval, spmmDCSRGPU70) {
+  if (!should_use_CUDA_codegen()) {
+    return;
+  }
+  /*int NUM_I = 1021/10;
+  int NUM_J = 1039/10;
+  int NUM_K = 128;
+  float SPARSITY = .3;*/
+  int NUM_I = 1024;
+  int NUM_J = 1024;
+  int NUM_K = 1024;
   float SPARSITY = .3;
   Tensor<double> A("A", {NUM_I, NUM_J}, {Sparse, Sparse});
   Tensor<double> B("B", {NUM_J, NUM_K}, {Dense, Dense});
@@ -907,6 +1181,77 @@ TEST(scheduling_eval, spmmDCSRGPU) {
   C.compile(stmt);
   C.assemble();
   C.compute();
+  int ii;
+  double wall0 = get_wall_time();
+  for(ii = 0; ii < 20; ii++) {
+    C.compute();
+  }
+  double wall1 = get_wall_time();
+  printf("kernel time: %lf s\n", (wall1 - wall0)/20);
+  write_to_file(0.7, (wall1 - wall0)/20*1000000); // us
+
+  Tensor<double> expected("expected", {NUM_I, NUM_K}, {Dense, Dense});
+  expected(i, k) = A(i, j) * B(j, k);
+  expected.compile();
+  expected.assemble();
+  expected.compute();
+  ASSERT_TENSOR_EQ(expected, C);
+}
+
+TEST(scheduling_eval, spmmDCSRGPU50) {
+  if (!should_use_CUDA_codegen()) {
+    return;
+  }
+  /*int NUM_I = 1021/10;
+  int NUM_J = 1039/10;
+  int NUM_K = 128;
+  float SPARSITY = .3;*/
+  int NUM_I = 1024;
+  int NUM_J = 1024;
+  int NUM_K = 1024;
+  float SPARSITY = .5;
+  Tensor<double> A("A", {NUM_I, NUM_J}, {Sparse, Sparse});
+  Tensor<double> B("B", {NUM_J, NUM_K}, {Dense, Dense});
+  Tensor<double> C("C", {NUM_I, NUM_K}, {Dense, Dense});
+
+  srand(25643);
+  for (int i = 0; i < NUM_I; i++) {
+    for (int j = 0; j < NUM_J; j++) {
+      float rand_float = (float)rand()/(float)(RAND_MAX);
+      if (rand_float < SPARSITY) {
+        A.insert({i, j}, (double) ((int) (rand_float*3/SPARSITY)));
+      }
+    }
+  }
+
+  for (int j = 0; j < NUM_J; j++) {
+    for (int k = 0; k < NUM_K; k++) {
+      float rand_float = (float)rand()/(float)(RAND_MAX);
+      B.insert({j, k}, (double) ((int) (rand_float*3/SPARSITY)));
+    }
+  }
+
+  A.pack();
+  B.pack();
+
+  C(i, k) = A(i, j) * B(j, k);
+
+  IndexStmt stmt = C.getAssignment().concretize();
+  stmt = scheduleSpMMNZRowsGPU(stmt, A);
+
+  //printToFile("spmm_dcsr_gpu", stmt);
+
+  C.compile(stmt);
+  C.assemble();
+  C.compute();
+  int ii;
+  double wall0 = get_wall_time();
+  for(ii = 0; ii < 20; ii++) {
+    C.compute();
+  }
+  double wall1 = get_wall_time();
+  printf("kernel time: %lf s\n", (wall1 - wall0)/20);
+  write_to_file(0.5, (wall1 - wall0)/20*1000000); // us
 
   Tensor<double> expected("expected", {NUM_I, NUM_K}, {Dense, Dense});
   expected(i, k) = A(i, j) * B(j, k);
